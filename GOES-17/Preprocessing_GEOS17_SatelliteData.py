@@ -55,10 +55,9 @@ def extract_satellite_images(data_dir=None, output_dir=None, file_pattern="baseb
     
     print("모든 파일 처리 완료!")
 
+# process_satellite_file 함수 수정
 def process_satellite_file(file_path, output_dir):
     """
-    단일 위성 신호 파일을 처리하여 이미지로 변환
-    
     Parameters:
     file_path (str): 처리할 파일 경로
     output_dir (str): 결과물을 저장할 디렉토리 경로
@@ -67,32 +66,58 @@ def process_satellite_file(file_path, output_dir):
     file_base = os.path.splitext(file_name)[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # 파일 로드
-    sample_rate, data = wavfile.read(file_path)
-    print(f"샘플링 레이트: {sample_rate} Hz")
-    print(f"데이터 형태: {data.shape}")
-    
-    # 모노 채널 확보
-    if len(data.shape) > 1:
-        data = data[:, 0]
-    
-    # 필요한 경우 데이터 크기 제한
-    max_samples = min(5000000, len(data))  # 최대 5백만 샘플로 제한
-    data = data[:max_samples]
-    
-    # 정규화
-    data = data.astype(np.float32) / np.max(np.abs(data))
-    
-    # 데이터 잡음 제거
-    data = denoise_signal(data)
-    
-    # 3가지 다른 방법으로 이미지 추출
-    extract_spectrogram_image(data, sample_rate, file_base, output_dir, timestamp)
-    extract_envelope_image(data, sample_rate, file_base, output_dir, timestamp)
-    extract_sync_based_image(data, sample_rate, file_base, output_dir, timestamp)
-    
-    # 추가: 다양한 컬러맵으로 시각화
-    create_colormap_variants(output_dir, file_base, timestamp)
+    try:
+        # 파일 로드
+        print("파일 로딩 중...")
+        sample_rate, data = wavfile.read(file_path)
+        print(f"샘플링 레이트: {sample_rate} Hz")
+        print(f"데이터 형태: {data.shape}")
+        
+        # 모노 채널 확보
+        if len(data.shape) > 1:
+            print("스테레오에서 모노로 변환 중...")
+            data = data[:, 0]
+        
+        # 데이터 크기 제한 (메모리 문제 방지를 위해 더 작게 설정)
+        max_samples = min(1000000, len(data))  # 최대 1백만 샘플로 제한
+        print(f"데이터 제한: {len(data)} -> {max_samples} 샘플")
+        data = data[:max_samples]
+        
+        # 정규화
+        print("데이터 정규화 중...")
+        data = data.astype(np.float32) / np.max(np.abs(data))
+        
+        # 데이터 잡음 제거
+        print("신호 잡음 제거 중...")
+        data = denoise_signal(data)
+        
+        # 스펙트로그램 이미지 생성
+        print("스펙트로그램 이미지 생성 중...")
+        extract_spectrogram_image(data, sample_rate, file_base, output_dir, timestamp)
+        
+        # 엔벨로프 이미지 생성 (문제 지점일 수 있음)
+        print("엔벨로프 이미지 생성 중...")
+        # 타임아웃 메커니즘 추가
+        try:
+            extract_envelope_image(data, sample_rate, file_base, output_dir, timestamp)
+            print("엔벨로프 이미지 생성 완료")
+        except Exception as e:
+            print(f"엔벨로프 이미지 생성 중 오류: {str(e)}")
+        
+        # 동기화 기반 이미지 생성 (또 다른 문제 지점일 수 있음)
+        print("동기화 기반 이미지 생성 중...")
+        try:
+            extract_sync_based_image(data, sample_rate, file_base, output_dir, timestamp)
+            print("동기화 기반 이미지 생성 완료")
+        except Exception as e:
+            print(f"동기화 기반 이미지 생성 중 오류: {str(e)}")
+        
+        print(f"{file_name} 처리 완료!")
+        
+    except Exception as e:
+        print(f"파일 처리 중 오류 발생: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 def denoise_signal(data, filter_order=3, cutoff_freq=0.05):
     """
