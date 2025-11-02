@@ -9,3 +9,5 @@ GOES-17/Preprocessing_GEOS17_SatelliteData.py
 단계별_실행_가이드.md
 프로젝트_구조_가이드.md
 satellite-ai-project/PROJECT_STRUCTURE_REPORT.md
+/data
+DATA_PROCESSING_GUIDE.md
