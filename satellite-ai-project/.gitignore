@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# 데이터 (큰 파일은 제외)
+data/raw/
+data/processed/
+data/embeddings/*.npy
+data/qa_dataset/*.json
+*.npy
+*.npz
+
+# 모델 파일
+models/*/pytorch_model.bin
+models/*/adapter_model.bin
+models/*/model.safetensors
+models/*/*.bin
+models/*/*.safetensors
+
+# 환경 변수
+.env
+.env.local
+.env.*.local
+
+# 로그 및 결과
+results/logs/
+results/checkpoints/
+*.log
+*.pth
+*.ckpt
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.dockerignore
+
+# OS
+Thumbs.db
+desktop.ini
+
+# 임시 파일
+*.tmp
+*.temp
+.cache/
+

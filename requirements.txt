@@ -1,0 +1,38 @@
+# 핵심 딥러닝
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+
+# 멀티모달
+sentence-transformers>=2.2.0
+Pillow>=10.0.0
+
+# 데이터베이스
+psycopg2-binary>=2.9.9
+pgvector>=0.2.0
+
+# 파인튜닝
+peft>=0.7.0
+accelerate>=0.24.0
+datasets>=2.14.0
+bitsandbytes>=0.41.0
+
+# 에이전트
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.20
+langgraph>=0.0.20
+langfuse>=2.0.0
+
+# API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# 유틸리티
+numpy>=1.24.0
+pandas>=2.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+
