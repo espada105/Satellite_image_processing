@@ -13,6 +13,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 METADATA_DIR = DATA_DIR / "metadata"
+CAPTIONS_DIR = DATA_DIR / "captions"
 EMBEDDINGS_DIR = DATA_DIR / "embeddings"
 QA_DATASET_DIR = DATA_DIR / "qa_dataset"
 

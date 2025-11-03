@@ -11,3 +11,7 @@ GOES-17/Preprocessing_GEOS17_SatelliteData.py
 satellite-ai-project/PROJECT_STRUCTURE_REPORT.md
 /data
 DATA_PROCESSING_GUIDE.md
+/venv
+작업_진행_상황_정리.md
+캡션_생성_가이드.md
+캡션_생성_설명.md
