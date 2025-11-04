@@ -2,15 +2,6 @@
 
 위성 이미지를 활용한 지리공간 기반 멀티모달 AI 시스템 구축 프로젝트입니다.
 
-## 🌟 프로젝트 개요
-
-이 프로젝트는 다음과 같은 5가지 핵심 기술을 통합하여 구현합니다:
-
-1. **도메인 특화 LLM**: 위성 이미지 분석에 특화된 멀티모달 모델 파인튜닝
-2. **지리공간 RAG**: PGVector 기반 벡터 데이터베이스로 위성 이미지 검색
-3. **멀티모달 처리**: 이미지-텍스트 이해 및 분석
-4. **AI 에이전트**: LangGraph 기반 복잡한 워크플로우 자동화
-5. **프로덕션 모니터링**: Langfuse를 통한 추적 및 성능 모니터링
 
 ## 📋 프로젝트 구조
 
@@ -107,22 +98,6 @@ cd agents
 uvicorn main:app --host 0.0.0.0 --port 8002
 ```
 
-#### 4단계: 배포
-
-```bash
-# Docker 이미지 빌드
-docker build -f docker/multimodal-server/Dockerfile -t satellite-multimodal:latest .
-docker build -f docker/agent-server/Dockerfile -t satellite-agent:latest .
-
-# Docker Compose로 실행
-docker-compose up -d
-```
-
-## 📚 문서
-
-- **[프로젝트 구축 계획서](프로젝트_구축_계획서.md)**: 각 단계별 상세 계획 및 구현 방법
-- **[단계별 실행 가이드](단계별_실행_가이드.md)**: 실제 실행 명령어 및 체크리스트
-- **[프로젝트 구조 가이드](프로젝트_구조_가이드.md)**: 디렉토리 구조 및 파일 설명
 
 ## 🔧 기술 스택
 
@@ -174,8 +149,6 @@ docker-compose up -d
 
 ## 🔐 환경 변수 설정
 
-`.env` 파일에 다음 변수들을 설정하세요:
-
 ```bash
 # 데이터베이스
 POSTGRES_HOST=localhost
@@ -192,23 +165,24 @@ LANGFUSE_PUBLIC_KEY=your-langfuse-public-key
 LANGFUSE_SECRET_KEY=your-langfuse-secret-key
 ```
 
-## 🐛 트러블슈팅
+## 📝 간단 요약
 
-자세한 트러블슈팅 가이드는 [단계별 실행 가이드](단계별_실행_가이드.md)의 트러블슈팅 섹션을 참고하세요.
+- 데이터: SpaceNet SN8(PRE/POST-event) 타일 → 전처리 이미지/메타데이터, BLIP-2 캡션, Sentence-Transformers 임베딩(384d), PostgreSQL에 메타+임베딩(REAL[]) 저장
+- 프레임워크: FastAPI(서버), LangGraph/LangChain(에이전트), sentence-transformers(임베딩), psycopg3(DB), NumPy. pgvector 없이 코사인 유사도 검색
 
-## 🤝 기여
+## 🚀 서버 실행/사용
 
-이 프로젝트는 학습 및 포트폴리오 목적으로 구축되었습니다. 개선 사항이나 버그 리포트는 이슈로 등록해 주세요.
+- 실행:
+```bash
+venv/Scripts/python.exe -m uvicorn scripts.api.server:app --host 0.0.0.0 --port 8000
+```
 
-## 📄 라이선스
-
-MIT License
-
-## 📞 연락처
-
-프로젝트 관련 문의사항이 있으시면 이슈를 등록해 주세요.
-
----
-
-**참고**: 이 프로젝트는 위성 이미지 처리 및 AI 에이전트 구축의 학습 목적으로 만들어졌습니다. 프로덕션 환경에서 사용하기 전에 충분한 테스트와 최적화가 필요합니다.
+- 접속: `http://127.0.0.1:8000`
+- 사용: 입력창에 질문 → 답변 + 관련 이미지(기본 6개)와 캡션/유사도 표시
+- API 예시(선택):
+```bash
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"golf course near river","top_k":6}'
+```
 
