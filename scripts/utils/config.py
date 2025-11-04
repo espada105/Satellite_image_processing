@@ -3,7 +3,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# .env 파일 로드 (인코딩 명시)
+try:
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, encoding='utf-8')
+    else:
+        load_dotenv(encoding='utf-8')
+except Exception:
+    # .env 파일이 없어도 계속 진행
+    pass
 
 # 프로젝트 루트 경로
 PROJECT_ROOT = Path(__file__).parent.parent.parent

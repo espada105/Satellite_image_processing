@@ -10,6 +10,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from scripts.utils.config import POSTGRES_CONFIG
 
+# Windows 인코딩 문제 해결
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except:
+    pass
+
 
 def create_database():
     """데이터베이스 생성 (없는 경우)"""
@@ -18,7 +25,9 @@ def create_database():
     conn_config["database"] = "postgres"
     
     try:
-        conn = psycopg2.connect(**conn_config)
+        # 연결 문자열 직접 구성 (Windows 인코딩 문제 회피)
+        conn_string = f"host={conn_config['host']} port={conn_config['port']} user={conn_config['user']} password={conn_config['password']} dbname={conn_config['database']}"
+        conn = psycopg2.connect(conn_string)
         conn.autocommit = True
         cursor = conn.cursor()
         
@@ -48,7 +57,9 @@ def create_database():
 def setup_extensions():
     """pgvector 확장 설치"""
     try:
-        conn = psycopg2.connect(**POSTGRES_CONFIG)
+        # 연결 문자열 직접 구성 (Windows 인코딩 문제 회피)
+        conn_string = f"host={POSTGRES_CONFIG['host']} port={POSTGRES_CONFIG['port']} user={POSTGRES_CONFIG['user']} password={POSTGRES_CONFIG['password']} dbname={POSTGRES_CONFIG['database']}"
+        conn = psycopg2.connect(conn_string)
         register_vector(conn)
         cursor = conn.cursor()
         
@@ -74,7 +85,9 @@ def setup_extensions():
 def create_tables():
     """위성 이미지 인덱스 테이블 생성"""
     try:
-        conn = psycopg2.connect(**POSTGRES_CONFIG)
+        # 연결 문자열 직접 구성 (Windows 인코딩 문제 회피)
+        conn_string = f"host={POSTGRES_CONFIG['host']} port={POSTGRES_CONFIG['port']} user={POSTGRES_CONFIG['user']} password={POSTGRES_CONFIG['password']} dbname={POSTGRES_CONFIG['database']}"
+        conn = psycopg2.connect(conn_string)
         register_vector(conn)
         cursor = conn.cursor()
         

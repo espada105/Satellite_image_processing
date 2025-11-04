@@ -13,7 +13,9 @@ from scripts.utils.config import POSTGRES_CONFIG
 
 def get_db_connection():
     """데이터베이스 연결 반환"""
-    conn = psycopg2.connect(**POSTGRES_CONFIG)
+    # 연결 문자열 직접 구성 (Windows 인코딩 문제 회피)
+    conn_string = f"host={POSTGRES_CONFIG['host']} port={POSTGRES_CONFIG['port']} user={POSTGRES_CONFIG['user']} password={POSTGRES_CONFIG['password']} dbname={POSTGRES_CONFIG['database']}"
+    conn = psycopg2.connect(conn_string)
     register_vector(conn)
     return conn
 
