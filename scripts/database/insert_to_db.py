@@ -19,20 +19,27 @@ from tqdm import tqdm
 # 프로젝트 루트 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from scripts.database.setup_database import get_db_connection
+# get_db_connection 함수를 직접 정의 (pgvector 없이)
+def get_db_connection():
+    """데이터베이스 연결 반환 (pgvector 없이)"""
+    import psycopg
+    from scripts.utils.config import POSTGRES_CONFIG
+    # 연결 문자열 직접 구성
+    conn_string = f"host={POSTGRES_CONFIG['host']} port={POSTGRES_CONFIG['port']} user={POSTGRES_CONFIG['user']} password={POSTGRES_CONFIG['password']} dbname={POSTGRES_CONFIG['database']}"
+    conn = psycopg.connect(conn_string)
+    return conn
 from scripts.utils.config import (
     POSTGRES_CONFIG,
     PROCESSED_DATA_DIR
 )
 
 try:
-    import psycopg2
-    from pgvector.psycopg2 import register_vector
-    PSYCOPG2_AVAILABLE = True
+    import psycopg
+    PSYCOPG_AVAILABLE = True
 except ImportError:
-    print("⚠️  psycopg2가 설치되지 않았습니다.")
-    print("설치 방법: pip install psycopg2-binary pgvector")
-    PSYCOPG2_AVAILABLE = False
+    print("⚠️  psycopg가 설치되지 않았습니다.")
+    print("설치 방법: pip install psycopg[binary]")
+    PSYCOPG_AVAILABLE = False
     sys.exit(1)
 
 
@@ -129,14 +136,14 @@ def insert_to_database(
                             skipped_count += 1
                             continue
                     
-                    # 데이터 삽입
+                    # 데이터 삽입 (pgvector 없이 - embedding_array 사용)
                     insert_query = """
                     INSERT INTO satellite_images 
-                    (image_id, image_path, caption, embedding, metadata, location_name, latitude, longitude)
+                    (image_id, image_path, caption, embedding_array, metadata, location_name, latitude, longitude)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (image_id) DO UPDATE SET
                         caption = EXCLUDED.caption,
-                        embedding = EXCLUDED.embedding,
+                        embedding_array = EXCLUDED.embedding_array,
                         metadata = EXCLUDED.metadata
                     """
                     
@@ -147,13 +154,16 @@ def insert_to_database(
                         'resolution': metadata.get('resolution', '') if isinstance(metadata, dict) else ''
                     }
                     
+                    # numpy array를 Python 리스트로 변환 (REAL[] 타입에 맞춤)
+                    embedding_list = embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
+                    
                     cursor.execute(
                         insert_query,
                         (
                             caption_item['image_id'],
                             str(image_path),
                             caption_item.get('caption', ''),
-                            embedding.tolist(),  # numpy array를 리스트로 변환
+                            embedding_list,  # REAL[] 배열로 저장
                             json.dumps(metadata_json),
                             location_name,
                             float(latitude) if latitude else None,
