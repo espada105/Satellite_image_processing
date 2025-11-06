@@ -24,7 +24,7 @@ async function send() {
     const resp = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: q, top_k: 6 })
+      body: JSON.stringify({ message: q, top_k: 24 })
     });
     const data = await resp.json();
     const last = messagesEl.lastChild;

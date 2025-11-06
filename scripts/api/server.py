@@ -33,19 +33,19 @@ app.mount("/images", StaticFiles(directory=str(images_dir)), name="images")
 
 class TextSearchRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = 24
     threshold: float = 0.0
 
 
 class HybridSearchRequest(BaseModel):
     query: Optional[str] = None
     metadata_filters: Optional[Dict[str, Any]] = None
-    top_k: int = 5
+    top_k: int = 24
 
 
 class RAGRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = 24
     metadata_filters: Optional[Dict[str, Any]] = None
 
 
@@ -55,7 +55,7 @@ class AgentQueryRequest(BaseModel):
 
 
 # 전역 도구/에이전트
-rag_tool = RAGTool(top_k=5)
+rag_tool = RAGTool(top_k=24)
 agent_instance: Optional[SatelliteAgent] = None
 
 
@@ -138,7 +138,7 @@ async def agent_query(req: AgentQueryRequest) -> Dict[str, Any]:
 
 class ChatRequest(BaseModel):
     message: str
-    top_k: int = 6
+    top_k: int = 24
 
 
 @app.post("/chat")

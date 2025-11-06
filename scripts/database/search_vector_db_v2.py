@@ -36,7 +36,7 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
 
 def search_by_embedding(
     query_embedding: np.ndarray,
-    top_k: int = 10,
+    top_k: int = 24,
     threshold: float = 0.0
 ) -> List[Dict]:
     """
@@ -109,7 +109,7 @@ def search_by_embedding(
 
 def search_by_text(
     query_text: str,
-    top_k: int = 10,
+    top_k: int = 24,
     threshold: float = 0.0
 ) -> List[Dict]:
     """
@@ -199,7 +199,7 @@ def hybrid_search(
     query_text: Optional[str] = None,
     query_embedding: Optional[np.ndarray] = None,
     metadata_filters: Optional[Dict] = None,
-    top_k: int = 10,
+    top_k: int = 24,
     similarity_weight: float = 0.7,
     metadata_weight: float = 0.3
 ) -> List[Dict]:
