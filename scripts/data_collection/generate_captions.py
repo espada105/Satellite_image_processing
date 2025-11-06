@@ -20,6 +20,12 @@ import os
 try:
     import torch
     from transformers import BlipProcessor, BlipForConditionalGeneration
+    # InstructBLIP (선택적)
+    try:
+        from transformers import InstructBlipProcessor, InstructBlipForConditionalGeneration
+        HAS_INSTRUCTBLIP = True
+    except Exception:
+        HAS_INSTRUCTBLIP = False
     TRANSFORMERS_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️  필요한 라이브러리가 설치되지 않았습니다: {e}")
@@ -59,8 +65,15 @@ def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large
     print(f"   디바이스: {device}")
     
     try:
-        processor = BlipProcessor.from_pretrained(model_name)
-        model = BlipForConditionalGeneration.from_pretrained(model_name)
+        # 모델 자동 감지: instructblip 지정 시 해당 클래스 사용
+        if "instructblip" in model_name.lower():
+            if not HAS_INSTRUCTBLIP:
+                raise RuntimeError("transformers에 InstructBLIP가 없습니다. pip install -U transformers 필요")
+            processor = InstructBlipProcessor.from_pretrained(model_name)
+            model = InstructBlipForConditionalGeneration.from_pretrained(model_name)
+        else:
+            processor = BlipProcessor.from_pretrained(model_name)
+            model = BlipForConditionalGeneration.from_pretrained(model_name)
         
         # GPU 최적화
         if device == "cuda":
@@ -189,7 +202,7 @@ def generate_captions_batch_gpu(
         
         # 배치로 처리 (여러 이미지를 한 번에 GPU에 로드)
         if use_prompt and any(p is not None for p in prompts):
-            # 프롬프트가 있는 경우
+            # 프롬프트가 있는 경우 (BLIP/InstructBLIP 모두 지원)
             inputs = processor(images=images, text=prompts, return_tensors="pt", padding=True).to(device)
         else:
             # 프롬프트가 없는 경우 (기존 방식)
@@ -200,7 +213,7 @@ def generate_captions_batch_gpu(
             inputs = {k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v 
                      for k, v in inputs.items()}
         
-        # inputs에서 pad_token_id와 eos_token_id 제거 (BLIP 모델이 내부적으로 설정함)
+        # inputs에서 pad_token_id와 eos_token_id 제거 (모델 내부에서 설정하도록)
         generate_inputs = {k: v for k, v in inputs.items() if k not in ['pad_token_id', 'eos_token_id']}
         
         # generate 파라미터 설정
@@ -521,7 +534,7 @@ def main():
         "--model_name",
         type=str,
         default="Salesforce/blip-image-captioning-large",
-        help="사용할 BLIP 모델 이름"
+        help="사용할 모델 이름 (예: Salesforce/blip-image-captioning-large 또는 Salesforce/instructblip-flan-t5-xl)"
     )
     
     parser.add_argument(
