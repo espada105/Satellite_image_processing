@@ -39,16 +39,17 @@ from scripts.utils.config import (
 )
 
 
-def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large", device: str = None):
+def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large", device: str = None, use_fp16: bool = True):
     """
-    BLIP 캡션 생성 모델 로드
+    BLIP 캡션 생성 모델 로드 (GPU 최적화)
     
     Args:
         model_name: 사용할 모델 이름
         device: 사용할 디바이스 (None이면 자동 선택)
+        use_fp16: FP16 사용 여부 (GPU 메모리 절약)
     
     Returns:
-        processor, model
+        processor, model, device
     """
     print(f"🤖 모델 로딩 중: {model_name}")
     
@@ -60,8 +61,25 @@ def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large
     try:
         processor = BlipProcessor.from_pretrained(model_name)
         model = BlipForConditionalGeneration.from_pretrained(model_name)
-        model.to(device)
+        
+        # GPU 최적화
+        if device == "cuda":
+            model.to(device)
+            if use_fp16:
+                model.half()  # FP16으로 변환 (메모리 절약)
+                print(f"   FP16 모드 활성화 (메모리 절약)")
+        else:
+            model.to(device)
+        
         model.eval()
+        
+        # GPU 메모리 정보 출력
+        if device == "cuda" and torch.cuda.is_available():
+            print(f"   GPU: {torch.cuda.get_device_name(0)}")
+            print(f"   GPU 메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            allocated = torch.cuda.memory_allocated(0) / 1024**3
+            reserved = torch.cuda.memory_reserved(0) / 1024**3
+            print(f"   할당된 메모리: {allocated:.2f} GB / 예약된 메모리: {reserved:.2f} GB")
         
         print(f"✅ 모델 로드 완료")
         return processor, model, device
@@ -71,49 +89,190 @@ def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large
         raise
 
 
-def generate_caption_for_image(
-    image_path: Path,
+def create_satellite_prompt(metadata: Dict = None) -> str:
+    """
+    위성 이미지 특화 프롬프트 생성
+    
+    Args:
+        metadata: 메타데이터 딕셔너리 (event_type, location, dataset 등)
+    
+    Returns:
+        프롬프트 문자열
+    """
+    base_prompt = "A detailed satellite image showing"
+    
+    if metadata:
+        # 이벤트 타입 추가
+        event_type = metadata.get('event_type', '')
+        if event_type == 'POST-event':
+            base_prompt += " a post-disaster scene with visible damage and flooding"
+        elif event_type == 'PRE-event':
+            base_prompt += " a pre-disaster scene with normal conditions"
+        
+        # 위치 정보 추가
+        location = metadata.get('location', {})
+        if isinstance(location, dict):
+            location_name = location.get('name', '')
+            if location_name:
+                base_prompt += f" in {location_name}"
+    
+    # 상세 설명 요청
+    base_prompt += ". Describe in detail the terrain, buildings, water bodies, vegetation, roads, and any visible features or changes."
+    
+    return base_prompt
+
+
+def generate_captions_batch_gpu(
+    image_paths: List[Path],
     processor,
     model,
     device: str,
-    max_length: int = 50,
-    num_beams: int = 5
-) -> str:
+    max_length: int = 120,
+    min_length: int = 20,
+    num_beams: int = 5,
+    use_fp16: bool = True,
+    temperature: float = 0.8,
+    repetition_penalty: float = 1.3,
+    metadata_dict: Dict[str, Dict] = None,
+    use_prompt: bool = True
+) -> List[str]:
     """
-    단일 이미지에 대한 캡션 생성
+    GPU에서 진짜 배치 처리로 여러 이미지의 캡션을 동시에 생성 (품질 개선 버전)
     
     Args:
-        image_path: 이미지 파일 경로
+        image_paths: 이미지 파일 경로 리스트
         processor: BLIP processor
         model: BLIP model
         device: 디바이스
-        max_length: 최대 생성 길이
+        max_length: 최대 생성 길이 (기본값: 120)
+        min_length: 최소 생성 길이 (기본값: 20)
         num_beams: 빔 서치 개수
+        use_fp16: FP16 사용 여부 (메모리 절약)
+        temperature: 샘플링 온도 (기본값: 0.8)
+        repetition_penalty: 반복 방지 페널티 (기본값: 1.3)
+        metadata_dict: 이미지 ID를 키로 하는 메타데이터 딕셔너리
+        use_prompt: 프롬프트 사용 여부
     
     Returns:
-        생성된 캡션 텍스트
+        생성된 캡션 텍스트 리스트
     """
     try:
-        # 이미지 로드
-        image = Image.open(image_path).convert('RGB')
+        # 배치 이미지 로드 및 프롬프트 생성
+        images = []
+        prompts = []
+        valid_paths = []
         
-        # 캡션 생성
-        inputs = processor(images=image, return_tensors="pt").to(device)
+        for image_path in image_paths:
+            try:
+                image = Image.open(image_path).convert('RGB')
+                images.append(image)
+                valid_paths.append(image_path)
+                
+                # 메타데이터 기반 프롬프트 생성
+                if use_prompt and metadata_dict:
+                    image_id = image_path.stem
+                    metadata = metadata_dict.get(image_id, {})
+                    prompt = create_satellite_prompt(metadata)
+                elif use_prompt:
+                    prompt = create_satellite_prompt()
+                else:
+                    prompt = None
+                
+                prompts.append(prompt)
+                
+            except Exception as e:
+                print(f"⚠️  이미지 로드 실패: {image_path.name} - {e}")
+                continue
         
+        if not images:
+            return []
+        
+        # 배치로 처리 (여러 이미지를 한 번에 GPU에 로드)
+        if use_prompt and any(p is not None for p in prompts):
+            # 프롬프트가 있는 경우
+            inputs = processor(images=images, text=prompts, return_tensors="pt", padding=True).to(device)
+        else:
+            # 프롬프트가 없는 경우 (기존 방식)
+            inputs = processor(images=images, return_tensors="pt").to(device)
+        
+        # 입력도 FP16으로 변환 (모델이 FP16이면)
+        if use_fp16 and device == "cuda":
+            inputs = {k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v 
+                     for k, v in inputs.items()}
+        
+        # inputs에서 pad_token_id와 eos_token_id 제거 (BLIP 모델이 내부적으로 설정함)
+        generate_inputs = {k: v for k, v in inputs.items() if k not in ['pad_token_id', 'eos_token_id']}
+        
+        # generate 파라미터 설정
+        # 참고: pad_token_id와 eos_token_id는 BlipForConditionalGeneration.generate()가 
+        # 내부적으로 text_decoder.generate()에 전달하므로 여기서 설정하지 않음
+        generate_kwargs = {
+            "max_length": max_length,
+            "min_length": min_length,
+            "num_beams": num_beams,
+            "do_sample": True,  # ✅ 샘플링 활성화
+            "temperature": temperature,  # ✅ 다양성 제어
+            "repetition_penalty": repetition_penalty,  # ✅ 반복 방지
+        }
+        
+        # 배치 생성 (품질 개선 파라미터 적용)
         with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_length=max_length,
-                num_beams=num_beams,
-                do_sample=False
-            )
+            outputs = model.generate(**generate_inputs, **generate_kwargs)
         
-        caption = processor.decode(outputs[0], skip_special_tokens=True)
-        return caption.strip()
+        # 배치 결과 디코딩
+        captions = processor.batch_decode(outputs, skip_special_tokens=True)
+        captions = [caption.strip() for caption in captions]
+        
+        # 실패한 이미지에 대한 None 처리
+        result = []
+        valid_idx = 0
+        for i, path in enumerate(image_paths):
+            if path in valid_paths:
+                result.append(captions[valid_idx] if valid_idx < len(captions) else None)
+                valid_idx += 1
+            else:
+                result.append(None)
+        
+        return result
     
     except Exception as e:
-        print(f"⚠️  이미지 처리 실패: {image_path.name} - {e}")
-        return None
+        print(f"⚠️  배치 처리 실패: {e}")
+        # 실패 시 빈 리스트 반환
+        return [None] * len(image_paths)
+
+
+def load_metadata_dict(metadata_dir: Path = None) -> Dict[str, Dict]:
+    """
+    메타데이터를 딕셔너리로 로드 (이미지 ID를 키로 사용)
+    
+    Args:
+        metadata_dir: 메타데이터 디렉토리
+    
+    Returns:
+        {image_id: metadata} 딕셔너리
+    """
+    if metadata_dir is None:
+        from scripts.utils.config import METADATA_DIR
+        metadata_dir = METADATA_DIR
+    
+    if not metadata_dir.exists():
+        return {}
+    
+    metadata_dict = {}
+    metadata_files = list(metadata_dir.glob("*_metadata.json"))
+    
+    for metadata_file in metadata_files:
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata_list = json.load(f)
+                for meta in metadata_list:
+                    image_id = meta.get('image_id', '')
+                    if image_id:
+                        metadata_dict[image_id] = meta
+        except Exception as e:
+            print(f"⚠️  메타데이터 로드 실패: {metadata_file.name} - {e}")
+    
+    return metadata_dict
 
 
 def generate_captions_batch(
@@ -122,40 +281,112 @@ def generate_captions_batch(
     model,
     device: str,
     batch_size: int = 8,
-    max_length: int = 50
+    max_length: int = 120,
+    min_length: int = 20,
+    use_fp16: bool = True,
+    temperature: float = 0.8,
+    repetition_penalty: float = 1.3,
+    use_prompt: bool = True,
+    metadata_dir: Path = None
 ) -> List[Dict]:
     """
-    배치로 이미지 캡션 생성
+    GPU 병렬 처리를 사용한 배치 이미지 캡션 생성 (품질 개선 버전)
     
     Args:
         image_paths: 이미지 파일 경로 리스트
         processor: BLIP processor
         model: BLIP model
         device: 디바이스
-        batch_size: 배치 크기
-        max_length: 최대 생성 길이
+        batch_size: 배치 크기 (GPU 메모리에 따라 조정)
+        max_length: 최대 생성 길이 (기본값: 120)
+        min_length: 최소 생성 길이 (기본값: 20)
+        use_fp16: FP16 사용 여부 (메모리 절약)
+        temperature: 샘플링 온도 (기본값: 0.8)
+        repetition_penalty: 반복 방지 페널티 (기본값: 1.3)
+        use_prompt: 프롬프트 사용 여부 (기본값: True)
+        metadata_dir: 메타데이터 디렉토리
     
     Returns:
         캡션 정보 리스트
     """
     results = []
     
-    print(f"\n📝 캡션 생성 시작 (총 {len(image_paths)}개 이미지)")
+    # 메타데이터 로드
+    metadata_dict = {}
+    if use_prompt and metadata_dir:
+        metadata_dict = load_metadata_dict(metadata_dir)
+        print(f"\n📋 메타데이터 로드: {len(metadata_dict)}개 이미지의 메타데이터 발견")
     
-    # 배치 처리
+    print(f"\n📝 캡션 생성 시작 (총 {len(image_paths)}개 이미지)")
+    print(f"   디바이스: {device}")
+    print(f"   배치 크기: {batch_size}")
+    print(f"   프롬프트 사용: {use_prompt}")
+    print(f"   최대 길이: {max_length}, 최소 길이: {min_length}")
+    print(f"   Temperature: {temperature}, Repetition Penalty: {repetition_penalty}")
+    if device == "cuda":
+        print(f"   FP16 사용: {use_fp16}")
+        if torch.cuda.is_available():
+            print(f"   GPU: {torch.cuda.get_device_name(0)}")
+            print(f"   GPU 메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+    
+    # GPU 병렬 배치 처리
     for i in tqdm(range(0, len(image_paths), batch_size), desc="캡션 생성"):
-        batch = image_paths[i:i + batch_size]
-        batch_results = []
+        batch_paths = image_paths[i:i + batch_size]
         
-        for image_path in batch:
-            caption = generate_caption_for_image(
-                image_path,
+        # 진짜 배치 처리 (여러 이미지를 한 번에 GPU에 로드)
+        if device == "cuda":
+            # GPU 배치 처리 (품질 개선 파라미터 적용)
+            captions = generate_captions_batch_gpu(
+                batch_paths,
                 processor,
                 model,
                 device,
-                max_length=max_length
+                max_length=max_length,
+                min_length=min_length,
+                use_fp16=use_fp16,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+                metadata_dict=metadata_dict,
+                use_prompt=use_prompt
             )
-            
+        else:
+            # CPU는 순차 처리 (메모리 제약, 품질 개선 파라미터 적용)
+            captions = []
+            for image_path in batch_paths:
+                try:
+                    image = Image.open(image_path).convert('RGB')
+                    
+                    # 프롬프트 생성
+                    prompt = None
+                    if use_prompt:
+                        image_id = image_path.stem
+                        metadata = metadata_dict.get(image_id, {})
+                        prompt = create_satellite_prompt(metadata)
+                    
+                    # 입력 처리
+                    if prompt:
+                        inputs = processor(images=image, text=prompt, return_tensors="pt").to(device)
+                    else:
+                        inputs = processor(images=image, return_tensors="pt").to(device)
+                    
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            **inputs,
+                            max_length=max_length,
+                            min_length=min_length,
+                            num_beams=5,
+                            do_sample=True,
+                            temperature=temperature,
+                            repetition_penalty=repetition_penalty
+                        )
+                    caption = processor.decode(outputs[0], skip_special_tokens=True).strip()
+                    captions.append(caption)
+                except Exception as e:
+                    print(f"⚠️  이미지 처리 실패: {image_path.name} - {e}")
+                    captions.append(None)
+        
+        # 결과 정리
+        for image_path, caption in zip(batch_paths, captions):
             if caption:
                 # 윈도우/절대경로 혼합 환경에서도 안전하게 상대경로 계산
                 try:
@@ -163,13 +394,15 @@ def generate_captions_batch(
                 except Exception:
                     rel_path = image_path
 
-                batch_results.append({
+                results.append({
                     "image_id": image_path.stem,
                     "image_path": str(rel_path).replace('\\', '/'),
                     "caption": caption
                 })
         
-        results.extend(batch_results)
+        # GPU 메모리 정리 (옵션)
+        if device == "cuda" and i % (batch_size * 10) == 0:
+            torch.cuda.empty_cache()
     
     return results
 
@@ -308,8 +541,44 @@ def main():
     parser.add_argument(
         "--max_length",
         type=int,
-        default=50,
-        help="캡션 최대 길이 (기본값: 50)"
+        default=120,
+        help="캡션 최대 길이 (기본값: 120)"
+    )
+    
+    parser.add_argument(
+        "--min_length",
+        type=int,
+        default=20,
+        help="캡션 최소 길이 (기본값: 20)"
+    )
+    
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.8,
+        help="샘플링 온도 (기본값: 0.8, 높을수록 다양함)"
+    )
+    
+    parser.add_argument(
+        "--repetition_penalty",
+        type=float,
+        default=1.3,
+        help="반복 방지 페널티 (기본값: 1.3, 높을수록 반복 감소)"
+    )
+    
+    parser.add_argument(
+        "--no_prompt",
+        dest="use_prompt",
+        action="store_false",
+        help="프롬프트 비활성화 (기본값: 활성화)"
+    )
+    
+    parser.add_argument(
+        "--use_prompt",
+        dest="use_prompt",
+        action="store_true",
+        default=True,
+        help="프롬프트 사용 (기본값: True)"
     )
     
     parser.add_argument(
@@ -318,6 +587,20 @@ def main():
         default=None,
         choices=['cuda', 'cpu'],
         help="사용할 디바이스 (기본값: 자동 선택)"
+    )
+    
+    parser.add_argument(
+        "--use_fp16",
+        action="store_true",
+        default=True,
+        help="FP16 사용 (GPU 메모리 절약, 기본값: True)"
+    )
+    
+    parser.add_argument(
+        "--no_fp16",
+        dest="use_fp16",
+        action="store_false",
+        help="FP16 비활성화"
     )
     
     parser.add_argument(
@@ -353,16 +636,43 @@ def main():
         print(f"📌 제한 적용: {len(all_images)}개 이미지 처리")
     
     # 모델 로드
-    processor, model, device = load_caption_model(args.model_name, args.device)
+    processor, model, device = load_caption_model(
+        args.model_name, 
+        args.device,
+        use_fp16=args.use_fp16
+    )
     
-    # 캡션 생성
+    # GPU 배치 크기 자동 조정 (RTX 3060 Ti 8GB 기준)
+    if device == "cuda" and args.batch_size == 8:
+        # RTX 3060 Ti 8GB에 최적화된 배치 크기 추천
+        if args.use_fp16:
+            recommended_batch_size = 16  # FP16 사용 시
+        else:
+            recommended_batch_size = 8   # FP32 사용 시
+        
+        print(f"\n💡 GPU 배치 크기 추천: {recommended_batch_size} (현재: {args.batch_size})")
+        print(f"   메모리 부족 시 --batch_size를 줄이세요")
+    
+    # 메타데이터 디렉토리 설정
+    metadata_dir = None
+    if args.use_prompt or args.include_metadata:
+        from scripts.utils.config import METADATA_DIR
+        metadata_dir = METADATA_DIR
+    
+    # 캡션 생성 (GPU 병렬 처리, 품질 개선 파라미터 적용)
     captions = generate_captions_batch(
         all_images,
         processor,
         model,
         device,
         batch_size=args.batch_size,
-        max_length=args.max_length
+        max_length=args.max_length,
+        min_length=args.min_length,
+        use_fp16=args.use_fp16,
+        temperature=args.temperature,
+        repetition_penalty=args.repetition_penalty,
+        use_prompt=args.use_prompt,
+        metadata_dir=metadata_dir
     )
     
     print(f"\n✅ 캡션 생성 완료: {len(captions)}개")
