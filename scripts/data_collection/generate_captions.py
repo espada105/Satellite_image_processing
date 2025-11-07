@@ -26,6 +26,12 @@ try:
         HAS_INSTRUCTBLIP = True
     except Exception:
         HAS_INSTRUCTBLIP = False
+    # BLIP-2 (선택적)
+    try:
+        from transformers import Blip2Processor, Blip2ForConditionalGeneration
+        HAS_BLIP2 = True
+    except Exception:
+        HAS_BLIP2 = False
     TRANSFORMERS_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️  필요한 라이브러리가 설치되지 않았습니다: {e}")
@@ -71,6 +77,15 @@ def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large
                 raise RuntimeError("transformers에 InstructBLIP가 없습니다. pip install -U transformers 필요")
             processor = InstructBlipProcessor.from_pretrained(model_name)
             model = InstructBlipForConditionalGeneration.from_pretrained(model_name)
+        elif "blip2" in model_name.lower():
+            if not HAS_BLIP2:
+                raise RuntimeError("transformers에 BLIP-2가 없습니다. pip install -U transformers 필요")
+            processor = Blip2Processor.from_pretrained(model_name)
+            # 메모리 최적화: FP16 로딩 시도
+            model = Blip2ForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16 if use_fp16 else None
+            )
         else:
             processor = BlipProcessor.from_pretrained(model_name)
             model = BlipForConditionalGeneration.from_pretrained(model_name)
@@ -102,7 +117,7 @@ def load_caption_model(model_name: str = "Salesforce/blip-image-captioning-large
         raise
 
 
-def create_satellite_prompt(metadata: Dict = None) -> str:
+def create_satellite_prompt(metadata: Dict = None, instruction: str = None) -> str:
     """
     위성 이미지 특화 프롬프트 생성
     
@@ -112,6 +127,25 @@ def create_satellite_prompt(metadata: Dict = None) -> str:
     Returns:
         프롬프트 문자열
     """
+    # 사용자가 제공한 instruction이 있으면 그것을 최상위 지시문으로 사용
+    if instruction:
+        base_prompt = instruction.strip()
+        # instruction이 한 문장 지시형일 수 있으므로, 메타데이터 앵커만 선택적으로 덧붙임
+        suffix = []
+        if metadata:
+            evt = metadata.get('event_type')
+            if evt == 'POST-event':
+                suffix.append("post-disaster conditions")
+            elif evt == 'PRE-event':
+                suffix.append("pre-disaster conditions")
+            loc = metadata.get('location', {}) if isinstance(metadata, dict) else {}
+            loc_name = loc.get('name') if isinstance(loc, dict) else None
+            if loc_name:
+                suffix.append(f"near {loc_name}")
+        if suffix:
+            base_prompt += f" (context: {', '.join(suffix)})"
+        return base_prompt
+
     base_prompt = "A detailed satellite image showing"
     
     if metadata:
@@ -147,7 +181,8 @@ def generate_captions_batch_gpu(
     temperature: float = 0.8,
     repetition_penalty: float = 1.3,
     metadata_dict: Dict[str, Dict] = None,
-    use_prompt: bool = True
+    use_prompt: bool = True,
+    instruction: str = None
 ) -> List[str]:
     """
     GPU에서 진짜 배치 처리로 여러 이미지의 캡션을 동시에 생성 (품질 개선 버전)
@@ -185,9 +220,9 @@ def generate_captions_batch_gpu(
                 if use_prompt and metadata_dict:
                     image_id = image_path.stem
                     metadata = metadata_dict.get(image_id, {})
-                    prompt = create_satellite_prompt(metadata)
+                    prompt = create_satellite_prompt(metadata, instruction=instruction)
                 elif use_prompt:
-                    prompt = create_satellite_prompt()
+                    prompt = create_satellite_prompt(instruction=instruction)
                 else:
                     prompt = None
                 
@@ -201,12 +236,31 @@ def generate_captions_batch_gpu(
             return []
         
         # 배치로 처리 (여러 이미지를 한 번에 GPU에 로드)
+        # BLIP-2 모델 감지
+        is_blip2 = hasattr(model, '__class__') and 'Blip2' in model.__class__.__name__
+        
         if use_prompt and any(p is not None for p in prompts):
             # 프롬프트가 있는 경우 (BLIP/InstructBLIP 모두 지원)
             inputs = processor(images=images, text=prompts, return_tensors="pt", padding=True).to(device)
+            
+            # BLIP-2의 경우 프롬프트 길이 저장 (나중에 제거하기 위해)
+            if is_blip2:
+                prompt_input_ids = inputs.get('input_ids', None)
+                prompt_lengths = None
+                if prompt_input_ids is not None:
+                    # 각 프롬프트의 실제 길이 계산 (패딩 제외)
+                    prompt_lengths = []
+                    for i, prompt in enumerate(prompts):
+                        if prompt:
+                            # 프롬프트만 토크나이즈하여 길이 계산
+                            prompt_tokens = processor.tokenizer(prompt, return_tensors="pt", padding=False)
+                            prompt_lengths.append(prompt_tokens['input_ids'].shape[1])
+                        else:
+                            prompt_lengths.append(0)
         else:
             # 프롬프트가 없는 경우 (기존 방식)
             inputs = processor(images=images, return_tensors="pt").to(device)
+            prompt_lengths = None
         
         # 입력도 FP16으로 변환 (모델이 FP16이면)
         if use_fp16 and device == "cuda":
@@ -226,6 +280,7 @@ def generate_captions_batch_gpu(
             "do_sample": True,  # ✅ 샘플링 활성화
             "temperature": temperature,  # ✅ 다양성 제어
             "repetition_penalty": repetition_penalty,  # ✅ 반복 방지
+            "length_penalty": 1.2,  # ✅ 더 긴 캡션 유도 (1.0보다 크면 긴 시퀀스 선호)
         }
         
         # 배치 생성 (품질 개선 파라미터 적용)
@@ -234,7 +289,30 @@ def generate_captions_batch_gpu(
         
         # 배치 결과 디코딩
         captions = processor.batch_decode(outputs, skip_special_tokens=True)
-        captions = [caption.strip() for caption in captions]
+        
+        # BLIP-2의 경우 프롬프트 부분 제거
+        if is_blip2 and prompt_lengths is not None:
+            final_captions = []
+            for i, caption in enumerate(captions):
+                if prompt_lengths[i] > 0 and prompts[i]:
+                    # 프롬프트 부분 제거 (프롬프트가 캡션 시작 부분에 포함된 경우)
+                    prompt_text = prompts[i].strip()
+                    if caption.startswith(prompt_text):
+                        caption = caption[len(prompt_text):].strip()
+                    # 또는 프롬프트를 토큰 단위로 제거
+                    # 간단하게 프롬프트 텍스트가 포함되어 있으면 제거
+                    if prompt_text in caption:
+                        # 프롬프트가 캡션의 시작 부분에 있으면 제거
+                        parts = caption.split(prompt_text, 1)
+                        if len(parts) > 1:
+                            caption = parts[1].strip()
+                        else:
+                            # 프롬프트가 포함되어 있지만 시작 부분이 아니면 그대로 사용
+                            pass
+                final_captions.append(caption.strip())
+            captions = final_captions
+        else:
+            captions = [caption.strip() for caption in captions]
         
         # 실패한 이미지에 대한 None 처리
         result = []
@@ -300,7 +378,8 @@ def generate_captions_batch(
     temperature: float = 0.8,
     repetition_penalty: float = 1.3,
     use_prompt: bool = True,
-    metadata_dir: Path = None
+    metadata_dir: Path = None,
+    instruction: str = None
 ) -> List[Dict]:
     """
     GPU 병렬 처리를 사용한 배치 이미지 캡션 생성 (품질 개선 버전)
@@ -334,6 +413,8 @@ def generate_captions_batch(
     print(f"   디바이스: {device}")
     print(f"   배치 크기: {batch_size}")
     print(f"   프롬프트 사용: {use_prompt}")
+    if instruction:
+        print("   사용자 instruction 적용")
     print(f"   최대 길이: {max_length}, 최소 길이: {min_length}")
     print(f"   Temperature: {temperature}, Repetition Penalty: {repetition_penalty}")
     if device == "cuda":
@@ -360,7 +441,8 @@ def generate_captions_batch(
                 temperature=temperature,
                 repetition_penalty=repetition_penalty,
                 metadata_dict=metadata_dict,
-                use_prompt=use_prompt
+                use_prompt=use_prompt,
+                instruction=instruction
             )
         else:
             # CPU는 순차 처리 (메모리 제약, 품질 개선 파라미터 적용)
@@ -374,7 +456,7 @@ def generate_captions_batch(
                     if use_prompt:
                         image_id = image_path.stem
                         metadata = metadata_dict.get(image_id, {})
-                        prompt = create_satellite_prompt(metadata)
+                        prompt = create_satellite_prompt(metadata, instruction=instruction)
                     
                     # 입력 처리
                     if prompt:
@@ -595,6 +677,13 @@ def main():
     )
     
     parser.add_argument(
+        "--instruction",
+        type=str,
+        default=None,
+        help="InstructBLIP용 사용자 지시문(영문 권장). 제공 시 메타데이터와 함께 프롬프트로 사용"
+    )
+    
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -685,7 +774,8 @@ def main():
         temperature=args.temperature,
         repetition_penalty=args.repetition_penalty,
         use_prompt=args.use_prompt,
-        metadata_dir=metadata_dir
+        metadata_dir=metadata_dir,
+        instruction=args.instruction
     )
     
     print(f"\n✅ 캡션 생성 완료: {len(captions)}개")

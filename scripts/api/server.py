@@ -178,8 +178,10 @@ async def chat(req: ChatRequest) -> JSONResponse:
 
     if not answer:
         # RAG 결과 요약으로 대체
-        parts = [r["caption"] for r in results_with_urls[:3]]
-        answer = " \n".join(parts) if parts else "관련 이미지를 찾지 못했습니다."
+        if results_with_urls:
+            answer = f"I found {len(results_with_urls)} relevant images. Please check the results below."
+        else:
+            answer = "관련 이미지를 찾지 못했습니다."
 
     return JSONResponse({
         "message": req.message,
