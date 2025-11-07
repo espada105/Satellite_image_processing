@@ -2,6 +2,40 @@ const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
 const gridEl = document.getElementById('grid');
+const modalEl = document.getElementById('imageModal');
+const modalImgEl = document.getElementById('modalImage');
+const modalCloseBtn = document.getElementById('modalClose');
+
+function openModal(data) {
+  if (!modalEl) return;
+  modalImgEl.src = data.image_url;
+  modalImgEl.alt = data.image_id || 'Satellite image';
+  modalEl.classList.remove('hidden');
+  modalEl.classList.add('show');
+  document.body.classList.add('modal-open');
+}
+
+function closeModal() {
+  if (!modalEl) return;
+  modalEl.classList.remove('show');
+  modalEl.classList.add('hidden');
+  modalImgEl.src = '';
+  document.body.classList.remove('modal-open');
+}
+
+if (modalCloseBtn && modalEl) {
+  modalCloseBtn.addEventListener('click', closeModal);
+  modalEl.addEventListener('click', (event) => {
+    if (event.target === modalEl) {
+      closeModal();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && modalEl.classList.contains('show')) {
+      closeModal();
+    }
+  });
+}
 
 function addMsg(text, cls) {
   const div = document.createElement('div');
@@ -31,9 +65,22 @@ async function send() {
     if (last && last.classList.contains('bot')) last.remove();
     addMsg(data.answer || '(응답 없음)', 'bot');
 
-    (data.results || []).forEach(r => {
+    const results = data.results || [];
+
+    if (!results.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '검색된 이미지가 없습니다.';
+      gridEl.appendChild(empty);
+      return;
+    }
+
+    results.forEach(r => {
       const card = document.createElement('div');
       card.className = 'card';
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', `${r.image_id || 'Satellite image'} 보기`);
       const img = document.createElement('img');
       img.src = r.image_url;
       img.alt = r.image_id;
@@ -46,6 +93,13 @@ async function send() {
       card.appendChild(img);
       card.appendChild(cap);
       card.appendChild(sim);
+      card.addEventListener('click', () => openModal(r));
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openModal(r);
+        }
+      });
       gridEl.appendChild(card);
     });
   } catch (e) {
