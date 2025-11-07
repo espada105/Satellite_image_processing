@@ -1,0 +1,22 @@
+Example Questions for Satellite Image Search:
+
+1. Find images with roads or highways
+2. Show me images with rivers or water bodies
+3. Find satellite images with buildings or urban areas
+4. Show images with golf courses
+5. Find images with flooding or water damage
+6. Show me images with bridges over water
+7. Find satellite images with forests and vegetation
+8. Show images with roads running through fields
+9. Find images with small towns or villages
+10. Show me images with post-disaster damage
+11. Find satellite images with agricultural fields
+12. Show images with roads and buildings together
+13. Find images with rivers flowing through forests
+14. Show me images with golf courses near water
+15. Find satellite images with damaged buildings
+16. Show images with winding roads through fields
+17. Find images with lakes or ponds
+18. Show me images with urban areas and roads
+19. Find satellite images with flooding in fields
+20. Show images with bridges and roads
