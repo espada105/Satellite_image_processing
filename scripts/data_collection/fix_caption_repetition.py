@@ -1,9 +1,3 @@
-"""
-캡션 반복 문제 후처리 스크립트
-
-반복되는 단어나 구문을 감지하고 제거합니다.
-"""
-
 import json
 import re
 from pathlib import Path

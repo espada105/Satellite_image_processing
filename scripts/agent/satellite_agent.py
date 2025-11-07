@@ -8,7 +8,7 @@
 
 import sys
 import os
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, List, Dict
 from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -104,28 +104,48 @@ You have access to a database of satellite images with captions.
 Your task is to answer user questions based on the retrieved images and their captions.
 
 When answering:
-1. Be very concise (1-2 sentences maximum)
-2. Just mention what you found (e.g., "I found X images with roads and highways")
-3. Do NOT list all image details - the images are displayed below
-4. If no relevant images are found, say so clearly
+1. Be concise but informative (2-3 sentences)
+2. Use the EXACT total number of retrieved images provided in the context
+3. Summarize the key features or characteristics found in the images (e.g., locations, types of features, conditions)
+4. Make the answer natural and engaging, not just a count
+5. Do NOT list individual image details - the images are displayed below
 
-Example good answer: "I found 5 images featuring roads and highways in rural and urban settings."
-Example bad answer: "I found several images. Image 1: ... Image 2: ..." (too detailed)
+IMPORTANT: 
+- Always use the "Total retrieved images" number when stating how many images were found
+- Provide a brief summary of what the images show (e.g., "showing flooded areas with houses and trees" or "depicting various road types in rural and urban settings")
+- Make each answer slightly different even for similar queries to avoid repetition
+
+Example good answers:
+- "I found 8 images of flooded areas. These show various flooded regions with houses, trees, and water bodies, including both rural and coastal areas."
+- "I found 12 images featuring roads and highways. The images depict different road types including country roads, highways, and urban streets in various settings."
+- "I found 5 images showing golf courses. These aerial views capture golf courses surrounded by green fields, trees, and sometimes water features."
 """
         
         # 컨텍스트 구성
+        total_images = len(search_results)
         context_parts = [f"User question: {query}\n\n"]
-        context_parts.append("Retrieved images:\n")
+        context_parts.append(f"Total retrieved images: {total_images}\n\n")
+        context_parts.append("Sample retrieved images (showing top 5 for context):\n")
         
-        for i, result in enumerate(search_results[:5], 1):
+        # 주요 특징 추출을 위해 더 많은 샘플 확인
+        for i, result in enumerate(search_results[:min(8, len(search_results))], 1):
             context_parts.append(f"\n{i}. Image ID: {result['image_id']}")
             context_parts.append(f"   Caption: {result['caption']}")
-            context_parts.append(f"   Similarity: {result['similarity']:.4f}")
+            if i <= 5:
+                context_parts.append(f"   Similarity: {result['similarity']:.4f}")
         
         context = "".join(context_parts)
         
-        # 메시지 구성
-        prompt = f"{system_prompt}\n\n{context}\n\nPlease answer the user's question based on the retrieved images."
+        # 메시지 구성 - 더 자연스러운 답변 유도
+        prompt = f"""{system_prompt}
+
+{context}
+
+Please provide a natural, informative answer to the user's question. 
+- Use the exact total number ({total_images}) when mentioning how many images were found
+- Summarize the key characteristics, features, or patterns you observe across the retrieved images
+- Make the answer engaging and slightly different from previous answers if the query is similar
+- Focus on what the images collectively show, not individual details"""
         
         # LLM 호출
         try:
@@ -142,25 +162,36 @@ Example bad answer: "I found several images. Image 1: ... Image 2: ..." (too det
         
         return state
     
-    def query(self, question: str) -> dict:
+    def query(self, question: str, search_results: List[Dict] = None) -> dict:
         """
         질문에 대한 답변 생성
         
         Args:
             question: 사용자 질문
+            search_results: 이미 검색된 결과 (선택적, 제공되면 재검색하지 않음)
         
         Returns:
             답변 딕셔너리
         """
-        initial_state = {
-            "messages": [HumanMessage(content=question)],
-            "query": question,
-            "search_results": [],
-            "final_answer": ""
-        }
-        
-        # 그래프 실행
-        final_state = self.graph.invoke(initial_state)
+        # 검색 결과가 제공되면 사용, 없으면 내부에서 검색
+        if search_results is not None:
+            initial_state = {
+                "messages": [HumanMessage(content=question)],
+                "query": question,
+                "search_results": search_results,
+                "final_answer": ""
+            }
+            # 검색 노드 건너뛰고 답변 생성만 수행
+            final_state = self._generate_answer_node(initial_state)
+        else:
+            initial_state = {
+                "messages": [HumanMessage(content=question)],
+                "query": question,
+                "search_results": [],
+                "final_answer": ""
+            }
+            # 그래프 실행 (검색 + 답변 생성)
+            final_state = self.graph.invoke(initial_state)
         
         return {
             "question": question,

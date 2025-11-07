@@ -171,7 +171,8 @@ async def chat(req: ChatRequest) -> JSONResponse:
             agent_instance = None
     if agent_instance and agent_instance.llm:
         try:
-            resp = agent_instance.query(req.message)
+            # 서버에서 이미 검색한 결과를 에이전트에 전달
+            resp = agent_instance.query(req.message, search_results=search["results"])
             answer = resp.get("answer")
         except Exception:
             answer = None
