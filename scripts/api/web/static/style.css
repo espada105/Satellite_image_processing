@@ -18,6 +18,87 @@ body.modal-open {
   overflow: hidden;
 }
 
+body.hero-active {
+  overflow: hidden;
+}
+
+#hero {
+  position: fixed;
+  inset: 0;
+  background: url('/static/earth.jpg') center/cover no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  transition: transform 0.9s ease, opacity 0.9s ease;
+  text-align: center;
+}
+
+#hero.hero-hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(4, 8, 20, 0.2), rgba(4, 8, 20, 0.85));
+}
+
+.hero-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  max-width: 580px;
+  width: 100%;
+  padding: 16px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+}
+
+.hero-content h1 {
+  margin: 0 0 16px;
+  font-size: clamp(44px, 5vw, 68px);
+  font-weight: 800;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.hero-content p {
+  margin: 0 0 26px;
+  font-size: 18px;
+  color: #dbe6ff;
+}
+
+#enterBtn {
+  padding: 12px 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  font-size: 16px;
+  font-weight: 600;
+  background: rgba(12, 18, 40, 0.35);
+  color: #ffffff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+#enterBtn:hover {
+  transform: translateY(-2px);
+  background: rgba(20, 32, 60, 0.45);
+  border-color: rgba(255, 255, 255, 0.9);
+}
+
+#enterBtn:active {
+  transform: translateY(1px);
+}
+
 #app {
   max-width: 1400px;
   width: 100%;
@@ -27,6 +108,17 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  transition: opacity 0.8s ease;
+}
+
+#app.app-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#app.app-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 h1 {

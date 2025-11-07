@@ -2,9 +2,28 @@ const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
 const gridEl = document.getElementById('grid');
+const heroEl = document.getElementById('hero');
+const enterBtn = document.getElementById('enterBtn');
+const appRoot = document.getElementById('app');
 const modalEl = document.getElementById('imageModal');
 const modalImgEl = document.getElementById('modalImage');
 const modalCloseBtn = document.getElementById('modalClose');
+
+if (heroEl) {
+  document.body.classList.add('hero-active');
+}
+
+if (enterBtn && heroEl && appRoot) {
+  enterBtn.addEventListener('click', () => {
+    heroEl.classList.add('hero-hidden');
+    appRoot.classList.remove('app-hidden');
+    appRoot.classList.add('app-visible');
+    document.body.classList.remove('hero-active');
+    setTimeout(() => {
+      heroEl.style.display = 'none';
+    }, 900);
+  });
+}
 
 function openModal(data) {
   if (!modalEl) return;
